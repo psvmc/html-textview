@@ -21,10 +21,12 @@ import android.content.res.Resources;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
+import android.graphics.Rect;
 import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
 import android.os.AsyncTask;
 import android.text.Html.ImageGetter;
+import android.util.Base64;
 import android.util.Log;
 import android.view.View;
 import android.widget.TextView;
@@ -38,28 +40,19 @@ import java.net.URI;
 import java.net.URL;
 
 public class HtmlHttpImageGetter implements ImageGetter {
+    String TAG = "HtmlHttpImageGetter";
     TextView container;
     URI baseUri;
-    boolean matchParentWidth;
 
     private boolean compressImage = false;
     private int qualityImage = 50;
 
     public HtmlHttpImageGetter(TextView textView) {
         this.container = textView;
-        this.matchParentWidth = false;
     }
 
     public HtmlHttpImageGetter(TextView textView, String baseUrl) {
         this.container = textView;
-        if (baseUrl != null) {
-            this.baseUri = URI.create(baseUrl);
-        }
-    }
-
-    public HtmlHttpImageGetter(TextView textView, String baseUrl, boolean matchParentWidth) {
-        this.container = textView;
-        this.matchParentWidth = matchParentWidth;
         if (baseUrl != null) {
             this.baseUri = URI.create(baseUrl);
         }
@@ -75,17 +68,17 @@ public class HtmlHttpImageGetter implements ImageGetter {
     }
 
     public Drawable getDrawable(String source) {
-        UrlDrawable urlDrawable = new UrlDrawable();
 
+        UrlDrawable urlDrawable = new UrlDrawable();
         // get the actual source
-        ImageGetterAsyncTask asyncTask = new ImageGetterAsyncTask(urlDrawable, this, container,
-                matchParentWidth, compressImage, qualityImage);
+        ImageGetterAsyncTask asyncTask = new ImageGetterAsyncTask(urlDrawable, this, container, compressImage, qualityImage);
 
         asyncTask.execute(source);
-
         // return reference to URLDrawable which will asynchronously load the image specified in the src tag
         return urlDrawable;
+
     }
+
 
     /**
      * Static inner {@link AsyncTask} that keeps a {@link WeakReference} to the {@link UrlDrawable}
@@ -100,19 +93,17 @@ public class HtmlHttpImageGetter implements ImageGetter {
         private final WeakReference<View> containerReference;
         private final WeakReference<Resources> resources;
         private String source;
-        private boolean matchParentWidth;
         private float scale;
 
         private boolean compressImage = false;
         private int qualityImage = 50;
+        private String TAG = "HtmlHttpImageGetter";
 
-        public ImageGetterAsyncTask(UrlDrawable d, HtmlHttpImageGetter imageGetter, View container,
-                                    boolean matchParentWidth, boolean compressImage, int qualityImage) {
+        public ImageGetterAsyncTask(UrlDrawable d, HtmlHttpImageGetter imageGetter, View container, boolean compressImage, int qualityImage) {
             this.drawableReference = new WeakReference<>(d);
             this.imageGetterReference = new WeakReference<>(imageGetter);
             this.containerReference = new WeakReference<>(container);
             this.resources = new WeakReference<>(container.getResources());
-            this.matchParentWidth = matchParentWidth;
             this.compressImage = compressImage;
             this.qualityImage = qualityImage;
         }
@@ -122,15 +113,35 @@ public class HtmlHttpImageGetter implements ImageGetter {
             source = params[0];
 
             if (resources.get() != null) {
-                if (compressImage) {
-                    return fetchCompressedDrawable(resources.get(), source);
-                } else {
-                    return fetchDrawable(resources.get(), source);
+                if (source.startsWith("http")) {
+                    if (compressImage) {
+                        return fetchCompressedDrawable(resources.get(), source);
+                    } else {
+                        return fetchDrawable(resources.get(), source);
+                    }
+                } else if (source.startsWith("data")) {
+                    Bitmap bitmap = stringtoBitmap(source);
+                    BitmapDrawable bitmapDrawable = null;
+                    if (null != bitmap) {
+                        bitmapDrawable = new BitmapDrawable(resources.get(), bitmap);
+
+                        scale = getScale(bitmap);
+                        float density = Resources.getSystem().getDisplayMetrics().density;
+                        Log.i(TAG, "bitmapDrawable.getIntrinsicWidth(): "+bitmapDrawable.getIntrinsicWidth());
+                        Log.i(TAG, "scale: "+scale);
+                        Log.i(TAG, "density: "+density);
+
+                        bitmapDrawable.setBounds(0, 0, (int) (bitmap.getWidth() * scale * density), (int) (bitmap.getHeight() * scale * density));
+                    }
+                    return bitmapDrawable;
                 }
+
             }
 
             return null;
         }
+
+
 
         @Override
         protected void onPostExecute(Drawable result) {
@@ -143,7 +154,8 @@ public class HtmlHttpImageGetter implements ImageGetter {
                 return;
             }
             // set the correct bound according to the result from HTTP call
-            urlDrawable.setBounds(0, 0, (int) (result.getIntrinsicWidth() * scale), (int) (result.getIntrinsicHeight() * scale));
+            float density = Resources.getSystem().getDisplayMetrics().density;
+            urlDrawable.setBounds(0, 0, (int) (result.getIntrinsicWidth() * scale * density), (int) (result.getIntrinsicHeight() * scale * density));
 
             // change the reference of the current drawable to the result from the HTTP call
             urlDrawable.drawable = result;
@@ -158,6 +170,24 @@ public class HtmlHttpImageGetter implements ImageGetter {
             imageGetter.container.setText(imageGetter.container.getText());
         }
 
+
+        public Bitmap stringtoBitmap(String string) {
+            //将字符串转换成Bitmap类型
+            Bitmap bitmap = null;
+            try {
+                if (string.contains("base64,")) {
+                    string = string.split(",")[1];
+                }
+                Log.i(TAG, "stringtoBitmap: " + string);
+                byte[] decode = Base64.decode(string, Base64.DEFAULT);
+                bitmap = BitmapFactory.decodeByteArray(decode, 0, decode.length);
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+
+            return bitmap;
+        }
+
         /**
          * Get the Drawable from URL
          */
@@ -166,7 +196,8 @@ public class HtmlHttpImageGetter implements ImageGetter {
                 InputStream is = fetch(urlString);
                 Drawable drawable = new BitmapDrawable(res, is);
                 scale = getScale(drawable);
-                drawable.setBounds(0, 0, (int) (drawable.getIntrinsicWidth() * scale), (int) (drawable.getIntrinsicHeight() * scale));
+                float density = Resources.getSystem().getDisplayMetrics().density;
+                drawable.setBounds(0, 0, (int) (drawable.getIntrinsicWidth() * scale * density), (int) (drawable.getIntrinsicHeight() * scale * density));
                 return drawable;
             } catch (Exception e) {
                 return null;
@@ -191,8 +222,9 @@ public class HtmlHttpImageGetter implements ImageGetter {
 
                 scale = getScale(decoded);
                 BitmapDrawable b = new BitmapDrawable(res, decoded);
+                float density = Resources.getSystem().getDisplayMetrics().density;
 
-                b.setBounds(0, 0, (int) (b.getIntrinsicWidth() * scale), (int) (b.getIntrinsicHeight() * scale));
+                b.setBounds(0, 0, (int) (b.getIntrinsicWidth() * scale * density), (int) (b.getIntrinsicHeight() * scale * density));
                 return b;
             } catch (Exception e) {
                 return null;
@@ -207,20 +239,27 @@ public class HtmlHttpImageGetter implements ImageGetter {
 
             float maxWidth = container.getWidth();
             float originalDrawableWidth = bitmap.getWidth();
-
-            return maxWidth / originalDrawableWidth;
+            float density = Resources.getSystem().getDisplayMetrics().density;
+            if (originalDrawableWidth * density > maxWidth) {
+                return maxWidth / originalDrawableWidth / density;
+            } else {
+                return 1f;
+            }
         }
 
         private float getScale(Drawable drawable) {
             View container = containerReference.get();
-            if (!matchParentWidth || container == null) {
+            if (container == null) {
                 return 1f;
             }
-
             float maxWidth = container.getWidth();
             float originalDrawableWidth = drawable.getIntrinsicWidth();
-
-            return maxWidth / originalDrawableWidth;
+            float density = Resources.getSystem().getDisplayMetrics().density;
+            if (originalDrawableWidth * density > maxWidth) {
+                return maxWidth / originalDrawableWidth / density;
+            } else {
+                return 1f;
+            }
         }
 
         private InputStream fetch(String urlString) throws IOException {

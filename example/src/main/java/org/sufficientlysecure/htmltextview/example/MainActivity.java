@@ -25,6 +25,7 @@ import android.view.View;
 
 import org.sufficientlysecure.htmltextview.ClickableTableSpan;
 import org.sufficientlysecure.htmltextview.DrawTableLinkSpan;
+import org.sufficientlysecure.htmltextview.HtmlHttpImageGetter;
 import org.sufficientlysecure.htmltextview.HtmlResImageGetter;
 import org.sufficientlysecure.htmltextview.HtmlTextView;
 
@@ -55,13 +56,14 @@ public class MainActivity extends Activity {
 
         HtmlTextView textView = (HtmlTextView) findViewById(R.id.html_text);
 
-        //text.setRemoveFromHtmlSpace(false); // default is true
+        textView.setRemoveFromHtmlSpace(false); // default is true
         textView.setClickableTableSpan(new ClickableTableSpanImpl());
         DrawTableLinkSpan drawTableLinkSpan = new DrawTableLinkSpan();
-        drawTableLinkSpan.setTableLinkText("[tap for table]");
+        drawTableLinkSpan.setTableLinkText("[点击查看表格]");
         textView.setDrawTableLinkSpan(drawTableLinkSpan);
+        textView.setLongClickable(false);
 
-        textView.setHtml(R.raw.example, new HtmlResImageGetter(textView));
+        textView.setHtml(R.raw.example, new HtmlHttpImageGetter(textView));
     }
 
     @Override
